@@ -556,9 +556,14 @@ class VirtualMachine(Document):
 			self.machine_type = server_instance.server_type.name
 			self.private_ip_address = server_instance.private_net[0].ip
 			self.public_ip_address = server_instance.public_net.ipv4.ip
+
+			server_type = server_instance.server_type
+			self.vcpu = server_type.cores
+			self.ram = int(server_type.memory * 1024) # Convert GB to MiB
 		else:
 			self.status = "Terminated"
 		self.save()
+		self.update_servers()
 
 	def _sync_oci(self, instance=None):  # noqa: C901
 		if not instance:

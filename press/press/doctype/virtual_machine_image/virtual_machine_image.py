@@ -54,24 +54,42 @@ class VirtualMachineImage(Document):
 
 	def create_image(self):
 		cluster = frappe.get_doc("Cluster", self.cluster)
+
+		name = f"Frappe Cloud {self.name} - {self.virtual_machine}"
+		timestamp = frappe.utils.now_datetime().strftime("%Y%m%dT%H%M%S")
+		description = f"{self.series}-{self.region}-{self.cluster}-{timestamp}"
+
 		if cluster.cloud_provider == "AWS EC2":
 			volumes = self.get_volumes_from_virtual_machine()
 			response = self.client.create_image(
 				InstanceId=self.instance_id,
-				Name=f"Frappe Cloud {self.name} - {self.virtual_machine}",
+				Name=name,
 				BlockDeviceMappings=volumes,
 			)
 			self.image_id = response["ImageId"]
+
 		elif cluster.cloud_provider == "OCI":
 			image = self.client.create_image(
 				CreateImageDetails(
 					compartment_id=cluster.oci_tenancy,
-					display_name=f"Frappe Cloud {self.name} - {self.virtual_machine}",
+					display_name=name,
 					instance_id=self.instance_id,
 				)
 			).data
 			self.image_id = image.id
+
+		elif cluster.cloud_provider == "Hetzner":
+			server = self.client.servers.get_by_id(self.instance_id)
+			image = self.client.servers.create_image(
+				server=server.id,
+				name=name,
+				description=description,
+				type="snapshot"
+			)
+			self.image_id = str(image.image.id)
+
 		self.sync()
+
 
 	def create_image_from_copy(self):
 		source = frappe.get_doc("Virtual Machine Image", self.copied_from)

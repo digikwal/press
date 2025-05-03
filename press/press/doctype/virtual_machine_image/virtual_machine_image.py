@@ -10,6 +10,8 @@ from oci.core import ComputeClient
 from oci.core.models import CreateImageDetails
 from tenacity import retry, stop_after_attempt, wait_fixed
 from tenacity.retry import retry_if_result
+from hcloud import Client
+
 
 
 class VirtualMachineImage(Document):
@@ -268,8 +270,15 @@ class VirtualMachineImage(Document):
 				aws_access_key_id=cluster.aws_access_key_id,
 				aws_secret_access_key=cluster.get_password("aws_secret_access_key"),
 			)
-		if cluster.cloud_provider == "OCI":
+		
+		elif cluster.cloud_provider == "OCI":
 			return ComputeClient(cluster.get_oci_config())
+		
+		elif cluster.cloud_provider == "Hetzner":
+			settings = frappe.get_single("Press Settings")
+			api_token = settings.get_password("hetzner_api_token")
+			return Client(token=api_token)
+		
 		return None
 
 	@classmethod

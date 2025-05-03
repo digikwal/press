@@ -58,8 +58,6 @@ class VirtualMachineImage(Document):
 		cluster = frappe.get_doc("Cluster", self.cluster)
 
 		name = f"Frappe Cloud {self.name} - {self.virtual_machine}"
-		timestamp = frappe.utils.now_datetime().strftime("%Y%m%dT%H%M%S")
-		description = f"{self.series}-{self.region}-{self.cluster}-{timestamp}"
 
 		if cluster.cloud_provider == "AWS EC2":
 			volumes = self.get_volumes_from_virtual_machine()
@@ -84,8 +82,7 @@ class VirtualMachineImage(Document):
 			server = self.client.servers.get_by_id(self.instance_id)
 			image = self.client.servers.create_image(
 				server=server.id,
-				name=name,
-				description=description,
+				description=name,
 				type="snapshot"
 			)
 			self.image_id = str(image.image.id)

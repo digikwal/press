@@ -912,7 +912,8 @@ def get_frappe_io_auth_url() -> str:
             return get_oauth2_authorize_url(provider.name, redirect_to="")
     except Exception as e:
         # Log the error for debugging purposes
-        #frappe.log_error(message=str(e), title="Failed to get Frappe OAuth URL")
+        # frappe.log_error(message=str(e), title="Failed to get Frappe OAuth URL")
+        pass
     
     # Fallback to root URL if any error occurs
     return "/"

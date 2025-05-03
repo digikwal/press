@@ -162,6 +162,29 @@ class VirtualMachineImage(Document):
 			if image.size_in_mbs:
 				self.size = image.size_in_mbs // 1024
 
+		elif cluster.cloud_provider == "Hetzner":
+			image = self.client.images.get_by_id(self.image_id)
+			if not image:
+				self.status = "Unavailable"
+			else:
+				self.status = self.get_hetzner_status_map(image.status)
+				self.platform = image.os_flavor
+				if hasattr(image, "image_size") and image.image_size:
+					self.size = int(image.image_size)  # in GB
+
+				# There is no snapshot_id per volume, so we fill some basic info
+				self.volumes = []
+				self.append(
+					"volumes",
+					{
+						"snapshot_id": self.image_id,
+						"device": "/dev/sda1",
+						"volume_type": "local",
+						"size": self.size,
+					},
+				)
+				self.root_size = self.size
+				
 		self.save()
 		return self.status
 
@@ -206,6 +229,13 @@ class VirtualMachineImage(Document):
 			"EXPORTING": "Pending",
 			"DISABLED": "Unavailable",
 			"DELETED": "Unavailable",
+		}.get(status, "Unavailable")
+	
+	def get_hetzner_status_map(self, status):
+		return {
+			"creating": "Pending",
+			"available": "Available",
+			"deleting": "Unavailable",
 		}.get(status, "Unavailable")
 
 	def get_volumes_from_virtual_machine(self):

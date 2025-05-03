@@ -184,7 +184,7 @@ class VirtualMachineImage(Document):
 					},
 				)
 				self.root_size = self.size
-				
+
 		self.save()
 		return self.status
 
@@ -213,6 +213,10 @@ class VirtualMachineImage(Document):
 				self.client.delete_snapshot(SnapshotId=self.snapshot_id)
 		elif cluster.cloud_provider == "OCI":
 			self.client.delete_image(self.image_id)
+		elif cluster.cloud_provider == "Hetzner":
+			image = self.client.images.get_by_id(self.image_id)
+			if image:
+				self.client.images.delete(image)
 		self.sync()
 
 	def get_aws_status_map(self, status):

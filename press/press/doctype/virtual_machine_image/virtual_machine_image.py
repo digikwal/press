@@ -81,7 +81,7 @@ class VirtualMachineImage(Document):
 		elif cluster.cloud_provider == "Hetzner":
 			server = self.client.servers.get_by_id(self.instance_id)
 			image = self.client.servers.create_image(
-				server=server.id,
+				server=self.client.servers.get_by_id(self.instance_id),
 				description=name,
 				type="snapshot"
 			)

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import boto3
+from botocore.exceptions import ClientError
 import frappe
 from frappe.core.utils import find
 from frappe.model.document import Document
 from oci.core import ComputeClient
 from oci.core.models import CreateImageDetails
+from oci.exceptions import ServiceError
 from tenacity import retry, stop_after_attempt, wait_fixed
 from tenacity.retry import retry_if_result
 from hcloud import Client
+from hcloud.exceptions import APIException
 
 
 
@@ -109,13 +112,29 @@ class VirtualMachineImage(Document):
 	@frappe.whitelist()
 	def sync(self):  # noqa: C901
 		cluster = frappe.get_doc("Cluster", self.cluster)
+
+		# Self-healing: create image if missing
+		if not self.image_id:
+			self.create_image()
+			return self.status
+		
 		if cluster.cloud_provider == "AWS EC2":
-			images = self.client.describe_images(ImageIds=[self.image_id])["Images"]
+			try:
+				images = self.client.describe_images(ImageIds=[self.image_id])["Images"]
+			except ClientError as e:
+				if e.response["Error"]["Code"] == "InvalidAMIID.NotFound":
+					self.image_id = None
+					self.create_image()
+					return self.status
+				else:
+					raise
+
 			if images:
 				image = images[0]
 				self.status = self.get_aws_status_map(image["State"])
 				self.platform = image["Architecture"]
 				volume = find(image["BlockDeviceMappings"], lambda x: "Ebs" in x)
+
 				# This information is not accurate for images created from multiple volumes
 				attached_snapshots = []
 				if volume and "SnapshotId" in volume["Ebs"]:
@@ -128,11 +147,13 @@ class VirtualMachineImage(Document):
 					if not snapshot_id:
 						# We don't care about volumes without snapshots
 						continue
+
 					attached_snapshots.append(snapshot_id)
 					existing = find(self.volumes, lambda x: x.snapshot_id == snapshot_id)
 					device = volume["DeviceName"]
 					volume_type = volume["Ebs"]["VolumeType"]
 					size = volume["Ebs"]["VolumeSize"]
+
 					if existing:
 						existing.device = device
 						existing.volume_type = volume_type
@@ -153,36 +174,55 @@ class VirtualMachineImage(Document):
 
 				self.size = self.get_data_volume().size
 				self.root_size = self.get_data_volume().size
+
 			else:
 				self.status = "Unavailable"
+
 		elif cluster.cloud_provider == "OCI":
-			image = self.client.get_image(self.image_id).data
+			try:
+				image = self.client.get_image(self.image_id).data
+
+			except ServiceError as e:
+				if e.status == 404:
+					self.image_id = None
+					self.create_image()
+					return self.status
+				else:
+					raise
+
 			self.status = self.get_oci_status_map(image.lifecycle_state)
+
 			if image.size_in_mbs:
 				self.size = image.size_in_mbs // 1024
 
 		elif cluster.cloud_provider == "Hetzner":
-			image = self.client.images.get_by_id(self.image_id)
-			if not image:
-				self.status = "Unavailable"
-			else:
-				self.status = self.get_hetzner_status_map(image.status)
-				self.platform = image.os_flavor
-				if hasattr(image, "image_size") and image.image_size:
-					self.size = int(image.image_size)  # in GB
+			try:
+				image = self.client.images.get_by_id(self.image_id)
 
-				# There is no snapshot_id per volume, so we fill some basic info
-				self.volumes = []
-				self.append(
-					"volumes",
-					{
-						"snapshot_id": self.image_id,
-						"device": "/dev/sda1",
-						"volume_type": "local",
-						"size": self.size,
-					},
-				)
-				self.root_size = self.size
+			except APIException as e:
+				if e.code == "not_found":
+					self.image_id = None
+					self.create_image()
+					return self.status
+				else:
+					raise
+
+			self.status = self.get_hetzner_status_map(image.status)
+			self.platform = image.os_flavor
+			if hasattr(image, "image_size") and image.image_size:
+				self.size = int(image.image_size)  # in GB
+
+			self.volumes = []
+			self.append(
+				"volumes",
+				{
+					"snapshot_id": self.image_id,
+					"device": "/dev/sda1",
+					"volume_type": "local",
+					"size": self.size,
+				},
+			)
+			self.root_size = self.size
 
 		self.save()
 		return self.status

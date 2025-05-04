@@ -12,8 +12,7 @@ from oci.core.models import CreateImageDetails
 from oci.exceptions import ServiceError
 from tenacity import retry, stop_after_attempt, wait_fixed
 from tenacity.retry import retry_if_result
-from hcloud import Client
-from hcloud.exceptions import APIException
+from hcloud import Client, APIException
 
 
 

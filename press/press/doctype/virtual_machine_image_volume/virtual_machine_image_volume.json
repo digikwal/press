@@ -18,7 +18,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Volume Type",
-   "options": "gp3\ngp2",
+   "options": "gp3\ngp2\nlocal",
    "read_only": 1
   },
   {

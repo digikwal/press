@@ -1534,9 +1534,10 @@ class VirtualMachine(Document):
 	
 		elif self.cloud_provider == "Hetzner":
 			cluster = frappe.get_doc("Cluster", self.cluster)
+			device = self.get_next_volume_device_name()
 			location = self.client().locations.get_by_name(cluster.region)
 			name = name or f"{self.name}-{frappe.generate_hash(length=6)}"
-			device = self.get_next_volume_device_name()
+			server = self.client().servers.get_by_id(self.instance_id)
 	
 			# Create the volume
 			volume = self.client().volumes.create(
@@ -1545,11 +1546,11 @@ class VirtualMachine(Document):
 				location=location,
 				automount=automount,
 				format=fs_type,
-			).volume
+			).volume        	
 	
 			# Attach the volume (without the `device` argument)
 			self.client().volumes.attach(
-				server=int(self.instance_id),
+				server=server,
 				volume=volume
 			)
 	

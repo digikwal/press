@@ -1009,9 +1009,9 @@ class VirtualMachine(Document):
 			)
 		elif self.cloud_provider == "Hetzner":
 			server = self.client().servers.get_by_id(self.instance_id)
-			self.client().servers.change_protection(server=server, delete_protection=False)
+			self.client().servers.change_protection(server=server, delete=False, rebuild=False)
 		self.sync()
-
+	
 	@frappe.whitelist()
 	def enable_termination_protection(self):
 		if self.cloud_provider == "AWS EC2":
@@ -1020,7 +1020,7 @@ class VirtualMachine(Document):
 			)
 		elif self.cloud_provider == "Hetzner":
 			server = self.client().servers.get_by_id(self.instance_id)
-			self.client().servers.change_protection(server=server, delete_protection=True)
+			self.client().servers.change_protection(server=server, delete=True, rebuild=True)
 		self.sync()
 
 
@@ -1072,7 +1072,7 @@ class VirtualMachine(Document):
 			self.client().terminate_instances(InstanceIds=[self.instance_id])
 		elif self.cloud_provider == "Hetzner":
 			server = self.client().servers.get_by_id(self.instance_id)
-			self.client().servers.change_protection(server=server, delete_protection=False)
+			self.client().servers.change_protection(server=server, delete=False, rebuild=False)
 			self.client().servers.delete(server)
 
 	@frappe.whitelist()

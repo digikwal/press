@@ -205,12 +205,13 @@ class VirtualMachine(Document):
 				fs_type = volume.fs_type or "ext4"
 
 				hcloud_volume = self.client().volumes.create(
-					volume_name = volume.volume_name or f"{self.name}-vol-{volume.idx}"
+					name=volume.volume_name or f"{self.name}-vol-{volume.idx}",
 					size=volume.size,
 					location=location,
 					automount=True,
 					format=fs_type
 				).volume
+
 
 				self.client().volumes.attach(
 					server=server,

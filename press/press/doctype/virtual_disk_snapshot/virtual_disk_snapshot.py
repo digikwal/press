@@ -12,6 +12,8 @@ import rq
 from botocore.exceptions import ClientError
 from frappe.model.document import Document
 from oci.core import BlockstorageClient
+from hcloud import APIException, Client
+
 
 from press.utils import log_error
 from press.utils.jobs import has_job_timeout_exceeded
@@ -142,6 +144,20 @@ class VirtualDiskSnapshot(Document):
 				snapshot.time_created.astimezone(pytz.timezone(frappe.utils.get_system_timezone())),
 				"yyyy-MM-dd HH:mm:ss",
 			)
+
+		elif cluster.cloud_provider == "Hetzner":
+			try:
+				snapshot = self.client.snapshots.get_by_id(self.snapshot_id)
+				self.volume_id = snapshot.volume  # Hetzner stores volume separately
+				self.status = self.get_hetzner_status_map(snapshot.status)
+				self.description = snapshot.description
+				self.size = snapshot.size
+				self.start_time = frappe.utils.format_datetime(
+					snapshot.created, "yyyy-MM-dd HH:mm:ss"
+				)
+			except Exception:
+				self.status = "Unavailable"
+
 		self.save(ignore_version=True)
 
 	@frappe.whitelist()
@@ -163,6 +179,12 @@ class VirtualDiskSnapshot(Document):
 				self.client.delete_boot_volume_backup(self.snapshot_id)
 			else:
 				self.client.delete_volume_backup(self.snapshot_id)
+		elif cluster.cloud_provider == "Hetzner":
+			try:
+				self.client.snapshots.delete(self.snapshot_id)
+			except APIException as e:
+				frappe.msgprint(f"Failed to delete Hetzner snapshot: {e}", alert=True)
+
 		self.sync()
 
 	def get_aws_status_map(self, status):
@@ -183,6 +205,15 @@ class VirtualDiskSnapshot(Document):
 			"FAULTY": "Error",
 			"REQUEST_RECEIVED": "Pending",
 		}.get(status, "Unavailable")
+	
+	def get_hetzner_status_map(self, status):
+		return {
+			"creating": "Pending",
+			"available": "Completed",
+			"deleting": "Pending",
+			"error": "Error"
+		}.get(status, "Unavailable")
+
 
 	def create_volume(self, availability_zone: str, iops: int = 3000, throughput: int | None = None) -> str:
 		self.sync()
@@ -204,7 +235,7 @@ class VirtualDiskSnapshot(Document):
 			Throughput=throughput,
 		)
 		return response["VolumeId"]
-
+	
 	@property
 	def client(self):
 		cluster = frappe.get_doc("Cluster", self.cluster)
@@ -217,7 +248,13 @@ class VirtualDiskSnapshot(Document):
 			)
 		if cluster.cloud_provider == "OCI":
 			return BlockstorageClient(cluster.get_oci_config())
+		if cluster.cloud_provider == "Hetzner":
+			settings = frappe.get_single("Press Settings")
+			api_token = settings.get_password("hetzner_api_token")
+			return Client(token=api_token)
+		
 		return None
+
 
 
 def sync_snapshots():

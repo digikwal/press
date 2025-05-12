@@ -600,6 +600,7 @@ class VirtualMachine(Document):
 			server_type = server_instance.server_type
 			self.vcpu = server_type.cores
 			self.ram = int(server_type.memory * 1024)  # Convert GB to MiB
+			# self.platform = server_instance.server_type.architecture
 	
 			# Fetch and update termination protection status
 			protection_status = server_instance.protection
@@ -632,6 +633,11 @@ class VirtualMachine(Document):
 			for v in list(self.volumes):
 				if v.volume_type == "hcloud" and v.volume_id not in attached_volume_ids:
 					self.remove(v)
+
+			# Remove stale temporary volumes
+			for volume in list(self.temporary_volumes):
+				if volume.device not in [v.device for v in attached_volume_ids]:
+					self.remove(volume)
 	
 			if self.volumes:
 				self.disk_size = self.get_data_volume().size
@@ -1503,28 +1509,63 @@ class VirtualMachine(Document):
 		).insert()
 
 	@frappe.whitelist()
-	def attach_new_volume(self, size, iops=None, throughput=None):
-		if self.cloud_provider != "AWS EC2":
-			return None
-		volume_options = {
-			"AvailabilityZone": self.availability_zone,
-			"Size": size,
-			"VolumeType": "gp3",
-			"TagSpecifications": [
-				{
-					"ResourceType": "volume",
-					"Tags": [{"Key": "Name", "Value": f"Frappe Cloud - {self.name}"}],
-				},
-			],
-		}
-		if iops:
-			volume_options["Iops"] = iops
-		if throughput:
-			volume_options["Throughput"] = throughput
-		volume_id = self.client().create_volume(**volume_options)["VolumeId"]
-		self.wait_for_volume_to_be_available(volume_id)
-		self.attach_volume(volume_id)
-		return volume_id
+	def attach_new_volume(self, size, iops=None, throughput=None, fs_type="ext4", automount=True, name=None):
+		if self.cloud_provider == "AWS EC2":
+			volume_options = {
+				"AvailabilityZone": self.availability_zone,
+				"Size": size,
+				"VolumeType": "gp3",
+				"TagSpecifications": [
+					{
+						"ResourceType": "volume",
+						"Tags": [{"Key": "Name", "Value": f"Frappe Cloud - {self.name}"}],
+					},
+				],
+			}
+			if iops:
+				volume_options["Iops"] = iops
+			if throughput:
+				volume_options["Throughput"] = throughput
+
+			volume_id = self.client().create_volume(**volume_options)["VolumeId"]
+			self.wait_for_volume_to_be_available(volume_id)
+			self.attach_volume(volume_id)
+			return volume_id
+
+		elif self.cloud_provider == "Hetzner":
+			cluster = frappe.get_doc("Cluster", self.cluster)
+			location = self.client().locations.get_by_name(cluster.region)
+			name = name or f"{self.name}-{frappe.generate_hash(length=6)}"
+			device = self.get_next_volume_device_name()
+
+			volume = self.client().volumes.create(
+				name=name,
+				size=size,
+				location=location,
+				automount=automount,
+				format=fs_type,
+			).volume
+
+			self.client().volumes.attach(
+				volume=volume,
+				server=int(self.instance_id),
+				device=device,
+			)
+
+			self.append("volumes", {
+				"volume_id": str(volume.id),
+				"size": size,
+				"device": device,
+				"volume_type": "hcloud",
+				"name": name,
+				"fs_type": fs_type,
+				"automount": automount,
+			})
+			self.save()
+			return str(volume.id)
+
+		return None
+
 
 	def wait_for_volume_to_be_available(self, volume_id):
 		# AWS EC2 specific

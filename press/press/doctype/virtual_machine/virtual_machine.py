@@ -590,52 +590,56 @@ class VirtualMachine(Document):
 				server_instance = self.client().servers.get_by_id(self.instance_id)
 			except APIException:
 				is_deleted = True
-
+	
 		if server_instance and not is_deleted:
 			self.status = self.get_hetzner_status_map()[server_instance.status]
 			self.machine_type = server_instance.server_type.name
 			self.private_ip_address = server_instance.private_net[0].ip
 			self.public_ip_address = server_instance.public_net.ipv4.ip
-
+	
 			server_type = server_instance.server_type
 			self.vcpu = server_type.cores
 			self.ram = int(server_type.memory * 1024)  # Convert GB to MiB
-
+	
+			# Fetch and update termination protection status
+			protection_status = server_instance.protection
+			self.termination_protection = protection_status.get("delete", False)  # Default to False if not present
+	
 			# Sync attached Hetzner volumes
 			attached_volume_ids = []
 			for volume in self.get_volumes():
 				if not volume.server or volume.server.id != self.instance_id:
 					continue
-
+	
 				existing_volume = find(self.volumes, lambda v: v.volume_id == volume.id)
 				if existing_volume:
 					row = existing_volume
 				else:
 					row = frappe._dict()
-
+	
 				row.volume_id = volume.id
 				row.volume_type = "hcloud"
 				row.size = volume.size
 				row.device = f"/dev/disk/by-id/scsi-0HC_Volume_{volume.name}"
 				row.idx = len(self.volumes) + 1
-
+	
 				attached_volume_ids.append(volume.id)
-
+	
 				if not existing_volume:
 					self.append("volumes", row)
-
+	
 			# Remove stale hcloud volumes
 			for v in list(self.volumes):
 				if v.volume_type == "hcloud" and v.volume_id not in attached_volume_ids:
 					self.remove(v)
-
+	
 			if self.volumes:
 				self.disk_size = self.get_data_volume().size
 				self.root_disk_size = self.get_root_volume().size
-
+	
 		else:
 			self.status = "Terminated"
-
+	
 		self.save()
 		self.update_servers()
 

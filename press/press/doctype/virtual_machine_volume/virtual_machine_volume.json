@@ -121,13 +121,15 @@
   {
     "fieldname": "automount",
     "fieldtype": "Check",
-    "label": "Automount"
+    "label": "Automount",
+    "read_only_depends_on": "eval: doc.automount"
   },
   {
     "fieldname": "fs_type",
     "fieldtype": "Select",
     "label": "Filesystem Type",
-    "options": "ext4\nxfs"
+    "options": "ext4\nxfs",
+    "read_only_depends_on": "eval: doc.fs_type"
   }
   
  ],

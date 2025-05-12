@@ -1526,18 +1526,19 @@ class VirtualMachine(Document):
 				volume_options["Iops"] = iops
 			if throughput:
 				volume_options["Throughput"] = throughput
-
+	
 			volume_id = self.client().create_volume(**volume_options)["VolumeId"]
 			self.wait_for_volume_to_be_available(volume_id)
 			self.attach_volume(volume_id)
 			return volume_id
-
+	
 		elif self.cloud_provider == "Hetzner":
 			cluster = frappe.get_doc("Cluster", self.cluster)
 			location = self.client().locations.get_by_name(cluster.region)
 			name = name or f"{self.name}-{frappe.generate_hash(length=6)}"
 			device = self.get_next_volume_device_name()
-
+	
+			# Create the volume
 			volume = self.client().volumes.create(
 				name=name,
 				size=size,
@@ -1545,13 +1546,14 @@ class VirtualMachine(Document):
 				automount=automount,
 				format=fs_type,
 			).volume
-
+	
+			# Attach the volume (without the `device` argument)
 			self.client().volumes.attach(
-				volume=volume,
 				server=int(self.instance_id),
-				device=device,
+				volume=volume
 			)
-
+	
+			# Append the volume details to the document
 			self.append("volumes", {
 				"volume_id": str(volume.id),
 				"size": size,
@@ -1563,7 +1565,7 @@ class VirtualMachine(Document):
 			})
 			self.save()
 			return str(volume.id)
-
+	
 		return None
 
 

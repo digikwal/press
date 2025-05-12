@@ -160,17 +160,18 @@ class VirtualMachine(Document):
 		if self.cloud_provider == "Hetzner":
 			return self._provision_hetzner()
 		return None
-
+		
 	def _provision_hetzner(self):
 		cluster = frappe.get_doc("Cluster", self.cluster)
 		server_type = self.client().server_types.get_by_name(self.machine_type)
 		location = self.client().locations.get_by_name(cluster.region)
 		network = self.client().networks.get_by_id(cluster.vpc_id)
 		public_net = ServerCreatePublicNetwork(enable_ipv4=True, enable_ipv6=False)
-		ssh_key_name = self.ssh_key
-		ssh_key = self.client().ssh_keys.get_by_name(ssh_key_name)
+		ssh_key = self.client().ssh_keys.get_by_name(self.ssh_key)
+
+		# Create the server
 		server_response = self.client().servers.create(
-			name=f"{self.name}",
+			name=self.name,
 			server_type=server_type,
 			image=Image(name="ubuntu-22.04"),
 			networks=[network],
@@ -179,16 +180,47 @@ class VirtualMachine(Document):
 			ssh_keys=[ssh_key],
 		)
 		server = server_response.server
-		# We assing only one private IP, so should be fine
+
+		# Save basic server details
 		self.private_ip_address = server.private_net[0].ip
-
 		self.public_ip_address = server.public_net.ipv4.ip
-
 		self.instance_id = server.id
-
 		self.status = self.get_hetzner_status_map()[server.status]
-
 		self.save()
+
+		# Create and attach Hetzner volumes only if enabled
+		if self.has_data_volume:
+			for volume in self.volumes:
+				if volume.volume_type != "hcloud":
+					continue
+
+				# Validate volume size
+				if volume.size < 10 or volume.size > 10240:
+					frappe.throw(f"Hetzner volume '{volume.name or volume.idx}' must be between 10 GB and 10240 GB")
+
+				if volume.size % 1 != 0:
+					frappe.throw(f"Hetzner volume '{volume.name or volume.idx}' size must be in whole GB increments")
+
+				volume_name = volume.name or f"{self.name}-vol-{volume.idx}"
+				fs_type = volume.fs_type or "ext4"
+
+				hcloud_volume = self.client().volumes.create(
+					volume_name = volume.volume_name or f"{self.name}-vol-{volume.idx}"
+					size=volume.size,
+					location=location,
+					automount=True,
+					format=fs_type
+				).volume
+
+				self.client().volumes.attach(
+					server=server,
+					volume=hcloud_volume
+				)
+
+				volume.volume_id = hcloud_volume.id
+				volume.device = f"/dev/disk/by-id/scsi-0HC_Volume_{hcloud_volume.name}"
+				volume.save(ignore_permissions=True)
+
 
 	def _provision_aws(self):
 		additional_volumes = []

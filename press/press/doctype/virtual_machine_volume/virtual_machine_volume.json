@@ -20,7 +20,7 @@
   "delete_volume",
   "increase_disk_size",
   "update_ebs_performance",
-  "name",
+  "volume_name",
   "automount",
   "fs_type"
  ],
@@ -113,7 +113,7 @@
    "label": "Update EBS Performance"
   },
   {
-    "fieldname": "name",
+    "fieldname": "volume_name",
     "fieldtype": "Data",
     "label": "Volume Name",
     "in_list_view": 1
